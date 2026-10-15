@@ -1,0 +1,6 @@
+# Local configuration (Roblox IDs + ntfy topic)
+.env
+
+# Editor / OS noise
+*.swp
+.DS_Store
