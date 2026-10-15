@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
 #
-# roblox_verify.sh - Roblox presence monitor.
+# Roblox presence monitor: polls the Roblox API for a list of users and
+# notifies via ntfy.sh when one goes online, starts playing or disconnects.
 #
-# Polls the Roblox Presence API for a configurable list of users and sends an
-# ntfy.sh notification every time one of them goes online, starts playing or
-# goes offline.
-#
-# All configuration is read from two sources, in this order of precedence:
-#   1. Environment variables (exported in the shell, or set in the service)
-#   2. The .env file next to this script (gitignored, never uploaded)
-#
-# .env format:
-#   USERS=("1493909199:Name" "370166776:Name")   # <robloxUserId>:<label>
+# Config: environment variables first, then the gitignored .env:
+#   USERS=("149390999:Name" "37016676:Name")   # <robloxUserId>:<label>
 #   TOPIC="my_ntfy_topic"
 #
 set -uo pipefail
@@ -19,22 +12,18 @@ set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${ROBLOX_VERIFY_CONFIG:-${SCRIPT_DIR}/.env}"
 
-# --- Configuration loading ----------------------------------------------------
+# --- Config ------------------------------------------------------------------
 
-# Applies a single "declare -p" style assignment, but only if that variable is
-# not already defined in the environment. That way the environment always wins
-# and .env merely acts as the fallback for whatever was not exported.
+# Imports a "declare -p" assignment unless that variable is already set in the
+# environment, so the environment always wins over .env.
 apply_if_unset() {
     local declaration="$1" name
 
-    # Matches "declare -a NAME=...", "declare -- NAME=...", etc.
     [[ "${declaration}" =~ ^declare[[:space:]]+-[a-zA-Z-]*[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)= ]] || return 0
     name="${BASH_REMATCH[1]}"
 
     [[ -n "${!name+defined}" ]] && return 0
 
-    # -g is required: without it "declare" would create a function-local
-    # variable that disappears as soon as this function returns.
     eval "${declaration/#declare /declare -g }" 2>/dev/null || true
 }
 
@@ -47,9 +36,8 @@ load_config() {
         return 0
     fi
 
-    # Source the file in a subshell and dump only the variables it defines.
-    # This handles comments, quoting and multi-line arrays correctly, while
-    # leaving the shell's own variables (BASHOPTS, BASH_ARGC, ...) alone.
+    # env -i drops inherited names (PAM exports USERS), and sourcing in a
+    # subshell lets us keep only the variables the file actually defines.
     declarations="$(env -i bash -c '
         before=" $(compgen -v) "
         source "$1" || exit 1
@@ -71,10 +59,8 @@ load_config() {
 
 load_config
 
-# USERS can arrive from the environment as a plain comma-separated string,
-# because environment variables cannot hold arrays.
+# Environment variables cannot hold arrays, so USERS may arrive comma-separated.
 if ! declare -p USERS 2>/dev/null | grep -q '^declare -a'; then
-    # Keep the incoming value before re-declaring USERS as an array.
     users_value="${USERS_STR:-${USERS:-}}"
     declare -g -a USERS=()
     if [[ -n "${users_value}" ]]; then
@@ -127,10 +113,9 @@ describe_status() {
 
 # --- State --------------------------------------------------------------------
 
-# Initialise every tracked user to an "unknown" state so the first poll cycle
-# does not fire a notification.
 declare -A LAST_STATUSES
 for entry in "${USERS[@]}"; do
+    # -1 means "unknown", so the first poll only records a baseline.
     LAST_STATUSES["${entry%%:*}"]=-1
 done
 
@@ -151,18 +136,15 @@ while true; do
         last_status="${LAST_STATUSES[${user_id}]}"
 
         if [[ "${status}" -ne "${last_status}" ]]; then
-            # Skip the very first observation of each user.
-            if [[ "${last_status}" -ne -1 ]]; then
+            if [[ "${last_status}" -ne -1 ]]; then   # skip the first observation
                 notify "${friend_name} $(describe_status "${status}")"
             fi
             LAST_STATUSES[${user_id}]=${status}
             echo "Change detected for ${friend_name} -> status ${status}"
         fi
 
-        # Per-user cooldown so we do not hammer the Presence API.
-        sleep "${REQUEST_DELAY}"
+        sleep "${REQUEST_DELAY}"   # per-user cooldown
     done
 
-    # Global cooldown between cycles.
-    sleep "${CYCLE_DELAY}"
+    sleep "${CYCLE_DELAY}"      # cooldown between cycles
 done

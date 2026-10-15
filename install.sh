@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 #
-# install.sh - Instala y habilita el monitor de presencia de Roblox como
-#              servicio systemd, detectando automaticamente el usuario y
-#              el directorio de instalacion.
+# install.sh - Installs the Roblox monitor as a systemd service, detecting the
+# target user and the install directory automatically.
 #
-# Uso:
-#   sudo ./install.sh              # instala con valores detectados
-#   sudo ./install.sh --uninstall  # elimina el servicio
+# Usage:
+#   sudo ./install.sh              # install with detected values
+#   sudo ./install.sh --uninstall  # remove the service
 #
 set -euo pipefail
 
@@ -15,14 +14,12 @@ SERVICE_NAME="roblox-verify"
 SERVICE_TEMPLATE="${SCRIPT_DIR}/${SERVICE_NAME}.service"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 
-# --- Utilidades ---------------------------------------------------------------
+# --- Helpers -----------------------------------------------------------------
 
 info()  { printf '\033[0;36m[INFO]\033[0m %s\n' "$*"; }
 warn()  { printf '\033[0;33m[WARN]\033[0m %s\n' "$*"; }
 error() { printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; }
 die()   { error "$*"; exit 1; }
-
-# --- Deteccion del usuario ----------------------------------------------------
 
 detect_user() {
     local user=""
@@ -36,16 +33,16 @@ detect_user() {
         user="$(logname 2>/dev/null || true)"
     fi
 
-    [[ -z "${user}" || "${user}" == "root" ]] && die "No se pudo detectar el usuario objetivo. Usa: SERVICE_USER=tu_usuario sudo -E ./install.sh"
-    id -u "${user}" &>/dev/null || die "El usuario '${user}' no existe en el sistema."
+    [[ -z "${user}" || "${user}" == "root" ]] && die "Could not detect the target user. Use: SERVICE_USER=your_user sudo -E ./install.sh"
+    id -u "${user}" &>/dev/null || die "User '${user}' does not exist."
 
     printf '%s' "${user}"
 }
 
-# --- Comprobaciones previas --------------------------------------------------
+# --- Checks ------------------------------------------------------------------
 
 require_root() {
-    [[ "${EUID}" -eq 0 ]] || die "Ejecuta este script como root (sudo ./install.sh)"
+    [[ "${EUID}" -eq 0 ]] || die "Run this script as root (sudo ./install.sh)"
 }
 
 require_dependencies() {
@@ -56,7 +53,7 @@ require_dependencies() {
     done
 
     if (( ${#missing[@]} > 0 )); then
-        error "Faltan dependencias: ${missing[*]}"
+        error "Missing dependencies: ${missing[*]}"
         warn "Install them with: sudo pacman -S ${missing[*]}   # Arch/CachyOS"
         exit 1
     fi
@@ -86,19 +83,17 @@ install() {
         die "Missing ${SCRIPT_DIR}/.env - copy .env.example to .env and set USERS and TOPIC first"
     fi
 
-    # Make sure the target user can read the script and the config.
     sudo -u "${target_user}" test -r "${SCRIPT_DIR}/roblox_verify.sh" \
         || die "User '${target_user}' cannot read ${SCRIPT_DIR}/roblox_verify.sh"
 
-    # Keep the config readable only by the service user, never world-readable.
+    # The config must stay private to the service user.
     if ! sudo -u "${target_user}" test -r "${SCRIPT_DIR}/.env"; then
         warn "Restricting permissions on ${SCRIPT_DIR}/.env"
         chown "${target_user}" "${SCRIPT_DIR}/.env"
         chmod 0600 "${SCRIPT_DIR}/.env"
     fi
 
-    # Safety net: .env holds the Roblox IDs and the ntfy topic, so it must
-    # never end up in a commit.
+    # .env holds the Roblox IDs and the ntfy topic, so it must never be committed.
     if git -C "${SCRIPT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
         if git -C "${SCRIPT_DIR}" ls-files --error-unmatch .env >/dev/null 2>&1; then
             die ".env is tracked by git! Run: git rm --cached .env"
@@ -145,9 +140,10 @@ main() {
         install)   install ;;
         uninstall) uninstall ;;
         -h|--help|help)
-            sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'
+            # Print the header comment block, minus the leading "#".
+            awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "${BASH_SOURCE[0]}"
             ;;
-        *) die "Opción desconocida: $1 (usá --help)" ;;
+        *) die "Unknown option: $1 (use --help)" ;;
     esac
 }
 
