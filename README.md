@@ -1,11 +1,21 @@
-# RobloxVerify
+<h1 align="center">RobloxVerify</h1>
 
-Lightweight Linux service that watches a list of Roblox users and pushes a
-notification to your phone the moment they go online, start playing a game or
-disconnect.
+<p align="center">
+  <img src="https://img.shields.io/badge/bash-%3E%3D%204.2-4EAA25?style=flat-square&logo=gnubash&logoColor=white" alt="Bash >= 4.2">
+  <img src="https://img.shields.io/badge/systemd-0A1F44?style=flat-square&logo=systemd&logoColor=white" alt="systemd">
+  <img src="https://img.shields.io/badge/platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=white" alt="Linux">
+  <img src="https://img.shields.io/badge/notifications-ntfy.sh-FF8800?style=flat-square" alt="ntfy.sh">
+</p>
 
-It is a single Bash script plus a systemd unit — no daemons, no database, no
-build step.
+<p align="center">
+  Lightweight Linux service that watches a list of Roblox users and pushes a
+  notification to your phone the moment they go online, start playing a game or
+  disconnect.
+</p>
+
+<p align="center">
+  A single Bash script plus a systemd unit — no daemons, no database, no build step.
+</p>
 
 ## How it works
 
