@@ -6,7 +6,11 @@
 # ntfy.sh notification every time one of them goes online, starts playing or
 # goes offline.
 #
-# All configuration lives in the .env file next to this script:
+# All configuration is read from two sources, in this order of precedence:
+#   1. Environment variables (exported in the shell, or set in the service)
+#   2. The .env file next to this script (gitignored, never uploaded)
+#
+# .env format:
 #   USERS=("1493909199:Name" "370166776:Name")   # <robloxUserId>:<label>
 #   TOPIC="my_ntfy_topic"
 #
@@ -17,23 +21,76 @@ CONFIG_FILE="${ROBLOX_VERIFY_CONFIG:-${SCRIPT_DIR}/.env}"
 
 # --- Configuration loading ----------------------------------------------------
 
-if [[ ! -f "${CONFIG_FILE}" ]]; then
-    echo "ERROR: config file not found: ${CONFIG_FILE}" >&2
-    echo "       Copy .env.example to .env and fill in your users and topic." >&2
-    exit 1
-fi
+# Applies a single "declare -p" style assignment, but only if that variable is
+# not already defined in the environment. That way the environment always wins
+# and .env merely acts as the fallback for whatever was not exported.
+apply_if_unset() {
+    local declaration="$1" name
 
-# shellcheck disable=SC1090
-source "${CONFIG_FILE}"
+    # Matches "declare -a NAME=...", "declare -- NAME=...", etc.
+    [[ "${declaration}" =~ ^declare[[:space:]]+-[a-zA-Z-]*[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)= ]] || return 0
+    name="${BASH_REMATCH[1]}"
+
+    [[ -n "${!name+defined}" ]] && return 0
+
+    # -g is required: without it "declare" would create a function-local
+    # variable that disappears as soon as this function returns.
+    eval "${declaration/#declare /declare -g }" 2>/dev/null || true
+}
+
+load_config() {
+    local declarations
+
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        echo "WARNING: config file not found: ${CONFIG_FILE}" >&2
+        echo "         Relying on environment variables only." >&2
+        return 0
+    fi
+
+    # Source the file in a subshell and dump only the variables it defines.
+    # This handles comments, quoting and multi-line arrays correctly, while
+    # leaving the shell's own variables (BASHOPTS, BASH_ARGC, ...) alone.
+    declarations="$(env -i bash -c '
+        before=" $(compgen -v) "
+        source "$1" || exit 1
+        for name in $(compgen -v); do
+            case "${before}" in *" ${name} "*) continue ;; esac
+            declare -p "${name}" 2>/dev/null || true
+        done
+    ' _ "${CONFIG_FILE}" 2>/dev/null)" || {
+        echo "ERROR: could not parse ${CONFIG_FILE}" >&2
+        exit 1
+    }
+
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        apply_if_unset "${line}"
+    done <<< "${declarations}"
+}
+
+load_config
+
+# USERS can arrive from the environment as a plain comma-separated string,
+# because environment variables cannot hold arrays.
+if ! declare -p USERS 2>/dev/null | grep -q '^declare -a'; then
+    # Keep the incoming value before re-declaring USERS as an array.
+    users_value="${USERS_STR:-${USERS:-}}"
+    declare -g -a USERS=()
+    if [[ -n "${users_value}" ]]; then
+        IFS=',' read -r -a USERS <<< "${users_value}"
+    fi
+    unset users_value
+fi
 
 # Sanity checks on the loaded configuration.
 if ! declare -p USERS >/dev/null 2>&1 || [[ "${#USERS[@]}" -eq 0 ]]; then
-    echo "ERROR: USERS is not set or is empty in ${CONFIG_FILE}" >&2
+    echo "ERROR: USERS is not set or is empty (set it in ${CONFIG_FILE})" >&2
     exit 1
 fi
 
 if [[ -z "${TOPIC:-}" ]]; then
-    echo "ERROR: TOPIC is not set in ${CONFIG_FILE}" >&2
+    echo "ERROR: TOPIC is not set (set it in ${CONFIG_FILE})" >&2
     exit 1
 fi
 

@@ -64,6 +64,25 @@ TOPIC="my_ntfy_topic"
 > `openssl rand -hex 16`. Anyone who knows the topic can post and read your
 > notifications.
 
+### Variable precedence
+
+Every value can come from either place, and **the environment always wins**:
+
+1. Environment variables
+2. The `.env` file (fallback for anything not exported)
+
+```bash
+# One-off run with a different topic and user set, without touching .env
+TOPIC="otro_topic" USERS="1493909199:Alice,370166776:Bob" ./roblox_verify.sh
+
+# Point the script at a different config file
+ROBLOX_VERIFY_CONFIG=/etc/roblox-verify/other.env ./roblox_verify.sh
+```
+
+Since environment variables cannot hold arrays, `USERS` given through the
+environment must be a single comma-separated string (`"id:Name,id:Name"`) with
+no spaces. Leave it unset to use the array from `.env`.
+
 Optional timings (defaults shown):
 
 ```bash

@@ -57,21 +57,21 @@ require_dependencies() {
 
     if (( ${#missing[@]} > 0 )); then
         error "Faltan dependencias: ${missing[*]}"
-        warn "Instálalas con: sudo pacman -S ${missing[*]}   # Arch/CachyOS"
+        warn "Install them with: sudo pacman -S ${missing[*]}   # Arch/CachyOS"
         exit 1
     fi
 }
 
-# --- Operaciones -------------------------------------------------------------
+# --- Operations ----------------------------------------------------------------
 
 uninstall() {
     require_root
-    info "Deshabilitando y deteniendo ${SERVICE_NAME}.service"
+    info "Disabling and stopping ${SERVICE_NAME}.service"
     systemctl --quiet disable --now "${SERVICE_NAME}.service" 2>/dev/null || true
     rm -f "${SERVICE_PATH}"
     systemctl daemon-reload
     systemctl reset-failed 2>/dev/null || true
-    info "Servicio eliminado. El script en ${SCRIPT_DIR} no se tocó."
+    info "Service removed. The script in ${SCRIPT_DIR} was left untouched."
 }
 
 install() {
@@ -90,13 +90,26 @@ install() {
     sudo -u "${target_user}" test -r "${SCRIPT_DIR}/roblox_verify.sh" \
         || die "User '${target_user}' cannot read ${SCRIPT_DIR}/roblox_verify.sh"
 
+    # Keep the config readable only by the service user, never world-readable.
     if ! sudo -u "${target_user}" test -r "${SCRIPT_DIR}/.env"; then
-        warn "Fixing permissions on ${SCRIPT_DIR}/.env"
-        chmod 0644 "${SCRIPT_DIR}/.env"
+        warn "Restricting permissions on ${SCRIPT_DIR}/.env"
+        chown "${target_user}" "${SCRIPT_DIR}/.env"
+        chmod 0600 "${SCRIPT_DIR}/.env"
     fi
 
-    info "Usuario detectado: ${target_user}"
-    info "Directorio de trabajo: ${SCRIPT_DIR}"
+    # Safety net: .env holds the Roblox IDs and the ntfy topic, so it must
+    # never end up in a commit.
+    if git -C "${SCRIPT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
+        if git -C "${SCRIPT_DIR}" ls-files --error-unmatch .env >/dev/null 2>&1; then
+            die ".env is tracked by git! Run: git rm --cached .env"
+        fi
+        if ! git -C "${SCRIPT_DIR}" check-ignore -q .env; then
+            warn ".env is not covered by .gitignore - it could be committed by accident."
+        fi
+    fi
+
+    info "Detected user: ${target_user}"
+    info "Working directory: ${SCRIPT_DIR}"
 
     local rendered
     rendered="$(mktemp)"
@@ -104,27 +117,27 @@ install() {
         -e "s|__SCRIPT_DIR__|${SCRIPT_DIR}|g" \
         "${SERVICE_TEMPLATE}" > "${rendered}"
 
-    # Valida la unidad antes de instalarla.
+    # Validate the unit before installing it.
     if command -v systemd-analyze &>/dev/null; then
         systemd-analyze verify "${rendered}" >/dev/null 2>&1 \
-            || warn "systemd-analyze reportó avisos en la unidad (revisá con: systemd-analyze verify ${rendered})"
+            || warn "systemd-analyze reported warnings (see: systemd-analyze verify ${SERVICE_PATH})"
     fi
 
-    info "Instalando ${SERVICE_PATH}"
+    info "Installing ${SERVICE_PATH}"
     install -m 0644 "${rendered}" "${SERVICE_PATH}"
     rm -f "${rendered}"
 
     systemctl daemon-reload
     systemctl enable --now "${SERVICE_NAME}.service"
 
-    info "Servicio habilitado y en ejecución."
+    info "Service enabled and running."
     echo
     systemctl --no-pager --lines=10 status "${SERVICE_NAME}.service" || true
     echo
-    info "Comandos útiles:"
-    echo "  journalctl -u ${SERVICE_NAME}.service -f     # ver logs en vivo"
-    echo "  systemctl restart ${SERVICE_NAME}.service        # reiniciar"
-    echo "  sudo ${SCRIPT_DIR}/install.sh --uninstall      # desinstalar"
+    info "Useful commands:"
+    echo "  journalctl -u ${SERVICE_NAME}.service -f     # follow logs"
+    echo "  systemctl restart ${SERVICE_NAME}.service        # restart"
+    echo "  sudo ${SCRIPT_DIR}/install.sh --uninstall      # remove"
 }
 
 main() {
